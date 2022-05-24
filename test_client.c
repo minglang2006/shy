@@ -40,7 +40,7 @@ printf_null(const char *format, ...)
 
 
 #define XQC_PACKET_TMP_BUF_LEN 1500
-#define MAX_BUF_SIZE (1000*1024*1024)
+#define MAX_BUF_SIZE (100*1024*1024)
 
 #define XQC_MAX_TOKEN_LEN 256
 
@@ -131,12 +131,7 @@ int g_drop_rate;
 int g_spec_url;
 int g_is_get;
 uint64_t g_last_sock_op_time;
-uint64_t last_send_time = 0;
-uint64_t last_receive_time = 0;
-uint64_t last_stream_time = 0;
-uint64_t stream_send_time = 0;
-uint64_t send_interval_time = 0;
-uint64_t receive_interval_time = 0;
+uint64_t last_time;
 //currently, the maximum used test case id is 19
 //please keep this comment updated if you are adding more test cases. :-D
 int g_test_case;
@@ -372,29 +367,6 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
                 res = XQC_SOCKET_EAGAIN;
             }
         }
-
-	uint64_t send_time = now();
-        uint64_t interval;
-	if(last_send_time != 0){
- 		interval = send_time - last_send_time;
-                if(interval > send_interval_time ){
-                        send_interval_time = interval;
-                }
-        }
-	uint64_t hour,min,sec,usec,tmp;
-        usec = send_time % 1000000;
-        tmp = send_time / 1000000;
-        sec = tmp % 60;
-        tmp = tmp / 60;
-        min = tmp % 60;
-        tmp = tmp / 60;
-        hour = tmp % 24;
-
-
-       // printf("send a packet size:%zd ,interval time:%"PRIu64", ,max interval time:%"PRIu64"\n", res, interval,send_interval_time);
-      //  printf("send a packet size:%zd , time:%"PRIu64", interval time:%"PRIu64"ms:%"PRIu64"us\n", res, send_time, (send_time - stream_send_time)/1000,(send_time - stream_send_time)%1000);
-        printf("send a packet size:%zd , time=%"PRIu64"h:%"PRIu64"m:%"PRIu64"s:%"PRIu64"us, interval time=%"PRIu64"us\n", res, hour,min,sec,usec, send_time - stream_send_time);
-	last_send_time = send_time;
     } while ((res < 0) && (errno == EINTR));
 
     return res;
@@ -805,18 +777,6 @@ xqc_client_h3_conn_update_cid_notify(xqc_h3_conn_t *conn, const xqc_cid_t *retir
 int
 xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
 {
-    stream_send_time = now();
-        uint64_t hour,min,sec,usec,tmp;
-        usec = stream_send_time % 1000000;
-        tmp = stream_send_time / 1000000;
-        sec = tmp % 60;
-        tmp = tmp / 60;
-        min = tmp % 60;
-        tmp = tmp / 60;
-        hour = tmp % 24;
-
-    printf("********xqc_client_stream send time=%"PRIu64"h:%"PRIu64"m:%"PRIu64"s:%"PRIu64"us, interval time=%"PRIu64"us\n", hour,min,sec,usec, stream_send_time - last_stream_time);
-    last_stream_time=stream_send_time;
     ssize_t ret;
     user_stream_t *user_stream = (user_stream_t *) user_data;
 
@@ -865,16 +825,16 @@ xqc_client_stream_send(xqc_stream_t *stream, void *user_data)
             return 0;
 
         } else {
-            user_stream->send_offset += ret;
-           // printf("xqc_stream_send offset=%"PRIu64"\n", user_stream->send_offset);
+            //user_stream->send_offset += ret;
+            //printf("xqc_stream_send offset=%"PRIu64"\n", user_stream->send_offset);
+            printf("xqc_stream_send offset=%"PRIu64"\n", ret);
         }
     }
 
     if (g_test_case == 4) { //test fin_only
         if (user_stream->send_offset == user_stream->send_body_len) {
             fin = 1;
-	    printf("test fin\n");
-            usleep(20000*1000);
+            usleep(200*1000);
             ret = xqc_stream_send(stream, user_stream->send_body + user_stream->send_offset, user_stream->send_body_len - user_stream->send_offset, fin);
             printf("xqc_stream_send sent:%zd, offset=%"PRIu64", fin=1\n", ret, user_stream->send_offset);
         }
@@ -889,7 +849,6 @@ xqc_client_stream_write_notify(xqc_stream_t *stream, void *user_data)
     //DEBUG;
     int ret = 0;
     user_stream_t *user_stream = (user_stream_t *) user_data;
-    printf("stream write notify\n");
     ret = xqc_client_stream_send(stream, user_stream);
     return ret;
 }
@@ -949,7 +908,7 @@ xqc_client_stream_read_notify(xqc_stream_t *stream, void *user_data)
 
     } while (read > 0 && !fin);
 
-   // printf("xqc_stream_recv read:%zd, offset:%zu, fin:%d\n", read_sum, user_stream->recv_body_len, fin);
+    printf("xqc_stream_recv read:%zd, offset:%zu, fin:%d\n", read_sum, user_stream->recv_body_len, fin);
 
     /* test first frame rendering time */
     if (g_test_case == 14 && user_stream->first_frame_time == 0 && user_stream->recv_body_len >= 98*1024) {
@@ -1656,28 +1615,8 @@ xqc_client_socket_read_handler(user_conn_t *user_conn)
         }
 
         uint64_t recv_time = now();
-	uint64_t interval;
         g_last_sock_op_time = recv_time;
-	if(last_receive_time != 0){
-		interval = recv_time - last_receive_time;
-		if(interval > receive_interval_time ){
-			receive_interval_time = interval;
-		}
-	}
-	uint64_t hour,min,sec,usec,tmp;
-	usec = recv_time % 1000000;
-	tmp = recv_time / 1000000;
-	sec = tmp % 60;
-	tmp = tmp / 60;
-	min = tmp % 60;
-	tmp = tmp / 60;
-	hour = tmp % 24;
 
-
-	
-     	//printf("receive a packet size:%zd ,interval time:%"PRIu64", max interval time:%"PRIu64"\n", recv_size,interval,receive_interval_time);
-     	printf("receive a packet size:%zd ,receive time=%"PRIu64"h:%"PRIu64"m:%"PRIu64"s:%"PRIu64"us,  interval time=%"PRIu64"us\n",recv_size, hour,min,sec,usec, recv_time - stream_send_time);
-        last_receive_time = recv_time;
 
         if (TEST_DROP) continue;
 
@@ -1733,13 +1672,13 @@ xqc_client_socket_read_handler(user_conn_t *user_conn)
     } while (recv_size > 0);
 
     if ((now() - last_recv_ts) > 200000) {
-     //printf("recving rate: %.3lf Kbps\n", (rcv_sum - last_rcv_sum) * 8.0 * 1000 / (now() - last_recv_ts));
+        printf("recving rate: %.3lf Kbps\n", (rcv_sum - last_rcv_sum) * 8.0 * 1000 / (now() - last_recv_ts));
         last_recv_ts = now();
         last_rcv_sum = rcv_sum;
     }
 
 finish_recv:
-   //printf("recvfrom size:%zu\n", recv_sum);
+    printf("recvfrom size:%zu\n", recv_sum);
     xqc_engine_finish_recv(ctx.engine);
 }
 
@@ -1766,7 +1705,7 @@ xqc_client_socket_event_callback(int fd, short what, void *arg)
 static void
 xqc_client_engine_callback(int fd, short what, void *arg)
 {
-   // printf("timer wakeup now:%"PRIu64"\n", now());
+    printf("timer wakeup now:%"PRIu64"\n", now());
     client_ctx_t *ctx = (client_ctx_t *) arg;
 
     xqc_engine_main_logic(ctx->engine);
@@ -1779,6 +1718,9 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
     user_conn_t *user_conn = (user_conn_t *) arg;
     int rc;
     int restart_after_a_while = 1;
+    static int flag = 1;
+    static user_stream_t *user_stream;
+
 
     // write to eval file
     /*{
@@ -1796,27 +1738,33 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
     if (restart_after_a_while && g_test_case == 15) {
         restart_after_a_while--;
         //we don't care the memory leak caused by user_stream. It's just for one-shot testing. :D
-        user_stream_t *user_stream = calloc(1, sizeof(user_stream_t));
-        memset(user_stream, 0, sizeof(user_stream_t));
-        user_stream->user_conn = user_conn;
-      //  printf("gtest 15: restart from idle!\n");
-        user_stream->stream = xqc_stream_create(ctx.engine, &(user_conn->cid), user_stream);
+	if (flag) {
+        	user_stream = calloc(1, sizeof(user_stream_t));
+        	memset(user_stream, 0, sizeof(user_stream_t));
+        	user_stream->user_conn = user_conn;
+ //     printf("gtest 15: restart from idle!\n");
+       		user_stream->stream = xqc_stream_create(ctx.engine, &(user_conn->cid), user_stream);
+//            	user_stream->send_body = malloc(g_send_body_size);
+		flag = 0;
+	}
         if (user_stream->stream == NULL) {
             printf("xqc_stream_create error\n");
             goto conn_close;
         }
         xqc_client_stream_send(user_stream->stream, user_stream);
         struct timeval tv;
-        tv.tv_sec = g_conn_timeout;
-        tv.tv_usec = 0;
+        tv.tv_sec = 0;
+        tv.tv_usec = 1000;
         event_add(user_conn->ev_timeout, &tv);
-    //    printf("scheduled a new stream request\n");
+    	printf("time_intervale = %"PRIu64"\n",now() - last_time);
+    	last_time = now();
+//      printf("scheduled a new stream request\n");
         return;
     }
 
     if (now() - g_last_sock_op_time < (uint64_t)g_conn_timeout * 3000000) {
         struct timeval tv;
-        tv.tv_sec = g_conn_timeout;
+        tv.tv_sec = 1;
         tv.tv_usec = 0;
         event_add(user_conn->ev_timeout, &tv);
         return;
